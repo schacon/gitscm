@@ -21,23 +21,26 @@ class Version
   format :json
 
   def self.get_versions
-    # get the maint sha
-    maint_sha = get("/repos/gitster/git/git/refs/heads/maint").parsed_response['object']['sha']
-
-    # list commits in maint until we find the most recent release
-    commits = get("/repos/gitster/git/commits", :query => {:sha => maint_sha}).parsed_response
-    commits.each do |commit|
-      message = commit['commit']['message'].split("\n").first
-      if m = /^Git ([0-9.]+)$/.match(message)
+    # get a list of tags
+    tags = get("/repos/gitster/git/git/refs/tags/").parsed_response
+    tags.sort! {|a,b| b["ref"] <=> a["ref"] }
+    # go through the tags to find the latest release
+    tags.each do |tag|
+      if m = /^refs\/tags\/v([0-9.]+)$/.match(tag["ref"])
         version = m[1]
-        p commit['sha']
-        if !Version.first(:version => version)
+        if Version.last(:version => version)
+          puts "Already up to date"
+          break
+        else
+          next unless tag["object"]["type"] == "tag"
+          tagobj = get(tag["object"]["url"]).parsed_response
           v = Version.new
           v.version = version
-          v.commit_sha = commit['sha']
-          v.created_at = commit['commit']['author']['date']
+          v.commit_sha = tagobj["object"]["sha"]
+          v.created_at = tagobj["tagger"]["date"]
           if v.save
             puts "Version #{version} saved"
+            break
           else
             puts "Version #{version} save failed"
           end
@@ -45,7 +48,6 @@ class Version
       end
     end
   end
-
 end
 
 DataMapper.auto_upgrade!
