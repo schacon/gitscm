@@ -20,31 +20,42 @@ class Version
   default_params :output => 'json'
   format :json
 
+  def <=>(other)
+    aver = self.version.split(".").map { |x| x.to_i }
+    bver = other.version.split(".").map { |x| x.to_i }
+
+    return aver[0] <=> bver[0] if ((aver[0] <=> bver[0]) != 0)
+    return aver[1] <=> bver[1] if ((aver[1] <=> bver[1]) != 0)
+    return aver[2] <=> bver[2] if ((aver[2] <=> bver[2]) != 0)
+
+    return -1 if aver[3].nil?
+    return 1 if bver[3].nil?
+    aver[3] <=> bver[3]
+  end
+
   def self.get_versions
     # get a list of tags
     tags = get("/repos/gitster/git/git/refs/tags/").parsed_response
-    tags.sort! {|a,b| b["ref"] <=> a["ref"] }
-    # go through the tags to find the latest release
+
+    # We're only interested ithe tags that have real git version numbers
+    tags.delete_if { |tag| tag["ref"] !~ /^refs\/tags\/v[0-9.]+$/ }
+
     tags.each do |tag|
-      if m = /^refs\/tags\/v([0-9.]+)$/.match(tag["ref"])
-        version = m[1]
-        if Version.last(:version => version)
-          puts "Already up to date"
-          break
-        else
-          next unless tag["object"]["type"] == "tag"
-          tagobj = get(tag["object"]["url"]).parsed_response
-          v = Version.new
-          v.version = version
-          v.commit_sha = tagobj["object"]["sha"]
-          v.created_at = tagobj["tagger"]["date"]
-          if v.save
-            puts "Version #{version} saved"
-            break
-          else
-            puts "Version #{version} save failed"
-          end
-        end
+      version = tag["ref"][/v([0-9].+)$/, 1]
+      next if Version.all(:version => version).length > 0
+      next unless tag["object"]["type"] == "tag"
+      tagobj = get(tag["object"]["url"]).parsed_response
+      # If there's a problem with the server, let's pretend we didn't see it
+      next if tagobj.nil? || tagobj["object"].nil?
+
+      v = Version.new
+      v.version = version
+      v.commit_sha = tagobj["object"]["sha"]
+      v.created_at = tagobj["tagger"]["date"]
+      if v.save
+        puts "Version #{version} saved"
+      else
+        puts "Version #{version} save failed"
       end
     end
   end
